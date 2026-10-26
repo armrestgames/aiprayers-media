@@ -1,0 +1,35 @@
+name: decode-images
+on:
+  push:
+    branches: [main]
+    paths: ['incoming/**']
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: decode-images
+  cancel-in-progress: false
+jobs:
+  decode:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Decode incoming/*.b64 into images/*.png
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          mkdir -p images
+          files=(incoming/*.b64)
+          if [ ${#files[@]} -eq 0 ]; then echo "nothing to decode"; exit 0; fi
+          for f in "${files[@]}"; do
+            name=$(basename "$f" .b64)
+            tr -d ' \r\n' < "$f" | base64 -d > "images/${name}.png"
+            head -c 8 "images/${name}.png" | od -An -tx1 | tr -d ' \n' | grep -q '^89504e470d0a1a0a$' || { echo "not a PNG: $f"; exit 1; }
+            sha256sum "images/${name}.png"
+            git rm -q "$f"
+          done
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add images
+          git commit -m "Decode images"
+          for i in 1 2 3; do git pull --rebase -q origin main && git push origin HEAD:main && break; sleep 3; done
