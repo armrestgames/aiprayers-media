@@ -16,22 +16,29 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: main
-      - name: Decode incoming/*.b64 into images/*.png
+      - name: Decode incoming/*.b64 into images/*.png and incoming/*.mp4.b64 into videos/*.mp4
         run: |
           set -euo pipefail
           shopt -s nullglob
-          mkdir -p images
+          mkdir -p images videos
           files=(incoming/*.b64)
           if [ ${#files[@]} -eq 0 ]; then echo "nothing to decode"; exit 0; fi
           for f in "${files[@]}"; do
-            name=$(basename "$f" .b64)
-            tr -d ' \r\n' < "$f" | base64 -d > "images/${name}.png"
-            head -c 8 "images/${name}.png" | od -An -tx1 | tr -d ' \n' | grep -q '^89504e470d0a1a0a$' || { echo "not a PNG: $f"; exit 1; }
-            sha256sum "images/${name}.png"
+            base=$(basename "$f" .b64)
+            if [[ "$base" == *.mp4 ]]; then
+              out="videos/${base}"
+              tr -d ' \r\n' < "$f" | base64 -d > "$out"
+              [ "$(head -c 8 "$out" | tail -c 4)" = "ftyp" ] || { echo "not an MP4: $f"; exit 1; }
+            else
+              out="images/${base}.png"
+              tr -d ' \r\n' < "$f" | base64 -d > "$out"
+              head -c 8 "$out" | od -An -tx1 | tr -d ' \n' | grep -q '^89504e470d0a1a0a$' || { echo "not a PNG: $f"; exit 1; }
+            fi
+            sha256sum "$out"
             git rm -q "$f"
           done
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add images
-          git commit -m "Decode images"
+          git add images videos
+          git commit -m "Decode media"
           for i in 1 2 3; do git pull --rebase -q origin main && git push origin HEAD:main && break; sleep 3; done
